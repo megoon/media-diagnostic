@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Browser & System Info</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 1rem;
+    background: #f7f9fc;
+    color: #222;
+  }
+  h1, h2 {
+    margin-bottom: 1rem;
+  }
+  pre {
+    background: #eef4fb;
+    padding: 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 350px;
+    overflow-y: auto;
+  }
+  details {
+    margin-top: 0.5rem;
+  }
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #007acc;
+  }
+  .info-block {
+    margin-bottom: 1.5rem;
+  }
+</style>
+</head>
+<body>
+
+<h1>Browser & System Information</h1>
+
+<div id="browserInfo" class="info-block"></div>
+
+<script>
+  function getBrowserInfo() {
+    const nav = navigator;
+
+    // Basic info
+    const browserInfo = {
+      appCodeName: nav.appCodeName,
+      appName: nav.appName,
+      appVersion: nav.appVersion,
+      userAgent: nav.userAgent,
+      vendor: nav.vendor,
+      platform: nav.platform,
+      product: nav.product,
+      productSub: nav.productSub,
+      language: nav.language,
+      languages: nav.languages,
+      cookieEnabled: nav.cookieEnabled,
+      onLine: nav.onLine,
+      hardwareConcurrency: nav.hardwareConcurrency,
+      maxTouchPoints: nav.maxTouchPoints,
+      deviceMemory: nav.deviceMemory || "Unavailable",
+    };
+
+    // Screen info
+    const screenInfo = {
+      width: screen.width,
+      height: screen.height,
+      availWidth: screen.availWidth,
+      availHeight: screen.availHeight,
+      colorDepth: screen.colorDepth,
+      pixelDepth: screen.pixelDepth,
+      orientationType: screen.orientation?.type || "Unavailable",
+      orientationAngle: screen.orientation?.angle || "Unavailable"
+    };
+
+    // Detect if touch supported
+    const touchSupport = (('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
+
+    // Detect browser name/version from userAgent (basic)
+    function parseBrowser(ua) {
+      ua = ua.toLowerCase();
+      let tem;
+      let M = ua.match(/(opera|chrome|safari|firefox|edge|trident(?=\/))\/?\s*(\d+)/) || [];
+      if (/trident/.test(M[1])) {
+        tem = /\brv[ :]+(\d+)/g.exec(ua) || [];
+        return { name: 'IE', version: tem[1] || '' };
+      }
+      if (M[1] === 'chrome') {
+        tem = ua.match(/\b(OPR|Edg)\/(\d+)/);
+        if (tem != null) {
+          return { name: tem[1].replace('OPR', 'Opera').replace('Edg', 'Edge'), version: tem[2] };
+        }
+      }
+      M = M[2] ? [M[1], M[2]] : [nav.appName, nav.appVersion, '-?'];
+      return { name: M[0], version: M[1] };
+    }
+
+    const parsedBrowser = parseBrowser(browserInfo.userAgent);
+
+    return {
+      browser: parsedBrowser,
+      details: browserInfo,
+      screen: screenInfo,
+      touchSupport: touchSupport
+    };
+  }
+
+  function displayBrowserInfo() {
+    const info = getBrowserInfo();
+    const container = document.getElementById('browserInfo');
+
+    const basicHtml = `
+      <p><strong>Browser Name:</strong> ${info.browser.name}</p>
+      <p><strong>Browser Version:</strong> ${info.browser.version}</p>
+      <p><strong>Touch Support:</strong> ${info.touchSupport ? 'Yes' : 'No'}</p>
+      <p><strong>Online:</strong> ${info.details.onLine}</p>
+      <p><strong>Hardware Concurrency (CPU cores):</strong> ${info.details.hardwareConcurrency}</p>
+      <p><strong>Device Memory (GB):</strong> ${info.details.deviceMemory}</p>
+      <p><strong>Cookies Enabled:</strong> ${info.details.cookieEnabled}</p>
+      <p><strong>Platform:</strong> ${info.details.platform}</p>
+      <p><strong>Languages:</strong> ${info.details.languages.join(', ')}</p>
+      <p><strong>Screen Resolution:</strong> ${info.screen.width} x ${info.screen.height}</p>
+      <p><strong>Available Screen Size:</strong> ${info.screen.availWidth} x ${info.screen.availHeight}</p>
+      <p><strong>Color Depth:</strong> ${info.screen.colorDepth}</p>
+      <p><strong>Pixel Depth:</strong> ${info.screen.pixelDepth}</p>
+      <p><strong>Screen Orientation:</strong> ${info.screen.orientationType} (${info.screen.orientationAngle}°)</p>
+    `;
+
+    container.innerHTML = basicHtml + createJSONDetails('Full Browser Info JSON', info).outerHTML;
+  }
+
+  function createJSONDetails(title, obj) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = title;
+    details.appendChild(summary);
+
+    const pre = document.createElement('pre');
+    pre.textContent = JSON.stringify(obj, null, 2);
+    details.appendChild(pre);
+
+    return details;
+  }
+
+  displayBrowserInfo();
+</script>
+
+</body>
+</html>

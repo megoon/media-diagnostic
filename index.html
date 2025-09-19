@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>All Media Devices with Feeds & Info</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 1rem;
+    background: #f7f9fc;
+    color: #222;
+  }
+  h1 {
+    margin-bottom: 1rem;
+  }
+  button {
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+  }
+  .device-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  .device-block {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.12);
+    padding: 1rem;
+    width: 360px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    word-break: break-word;
+  }
+  video {
+    width: 100%;
+    border-radius: 4px;
+    background: black;
+  }
+  .ptz-controls {
+    margin-top: 0.8rem;
+  }
+  .ptz-control {
+    margin-bottom: 0.5rem;
+  }
+  label {
+    font-weight: 600;
+  }
+  input[type=range] {
+    width: 100%;
+  }
+  pre {
+    max-height: 180px;
+    overflow-y: auto;
+    background: #eef4fb;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  details {
+    margin-top: 0.5rem;
+  }
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #007acc;
+  }
+  .audio-meter {
+    margin-top: 0.5rem;
+    height: 20px;
+    background: #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .audio-level {
+    height: 100%;
+    width: 0;
+    background: #4caf50;
+    transition: width 0.1s linear;
+  }
+</style>
+</head>
+<body>
+
+<h1>All Media Devices with Feeds & Info</h1>
+<button id="startBtn">Start Devices</button>
+<button id="stopBtn" disabled>Stop All</button>
+<button id="diagBtn">Open System Diagnostic</button>
+
+<h2>Video Input Devices</h2>
+<div id="videoDevices" class="device-container"></div>
+
+<h2>Audio Input Devices</h2>
+<div id="audioInputDevices" class="device-container"></div>
+
+<h2>Audio Output Devices</h2>
+<div id="audioOutputDevices" class="device-container"></div>
+
+<script>
+  const activeStreams = [];
+  const audioContexts = new Map();
+
+  function createJSONDetails(title, obj) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = title;
+    details.appendChild(summary);
+
+    const pre = document.createElement('pre');
+    pre.textContent = JSON.stringify(obj, null, 2);
+    details.appendChild(pre);
+
+    return details;
+  }
+
+  // Create audio level meter for audio input devices
+  function createAudioMeter(stream, container) {
+    const audioCtx = new AudioContext();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    const meter = document.createElement('div');
+    meter.className = 'audio-meter';
+    const levelBar = document.createElement('div');
+    levelBar.className = 'audio-level';
+    meter.appendChild(levelBar);
+    container.appendChild(meter);
+
+    function update() {
+      analyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+      const avg = sum / dataArray.length;
+      levelBar.style.width = (avg / 255 * 100).toFixed(1) + '%';
+      requestAnimationFrame(update);
+    }
+    update();
+
+    audioContexts.set(stream.id, { audioCtx, source, analyser });
+  }
+
+  async function startDevicesAndShowInfo() {
+    const videoDevicesDiv = document.getElementById('videoDevices');
+    const audioInputDevicesDiv = document.getElementById('audioInputDevices');
+    const audioOutputDevicesDiv = document.getElementById('audioOutputDevices');
+
+    videoDevicesDiv.innerHTML = 'Requesting permissions and enumerating devices...';
+    audioInputDevicesDiv.innerHTML = '';
+    audioOutputDevicesDiv.innerHTML = '';
+
+    try {
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      tempStream.getTracks().forEach(t => t.stop());
+
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      const audioInputDevices = devices.filter(d => d.kind === 'audioinput');
+      const audioOutputDevices = devices.filter(d => d.kind === 'audiooutput');
+
+      videoDevicesDiv.innerHTML = '';
+      audioInputDevicesDiv.innerHTML = '';
+      audioOutputDevicesDiv.innerHTML = '';
+
+      console.log('All Media Devices:', devices);
+
+      // VIDEO DEVICES — live feed + PTZ + info + device JSON
+      for (const device of videoDevices) {
+        const block = document.createElement('div');
+        block.className = 'device-block';
+
+        const title = document.createElement('h3');
+        title.textContent = device.label || `Camera (deviceId: ${device.deviceId})`;
+        block.appendChild(title);
+
+        const deviceInfo = document.createElement('div');
+        deviceInfo.innerHTML = `
+          <strong>Device ID:</strong> ${device.deviceId}<br/>
+          <strong>Group ID:</strong> ${device.groupId}<br/>
+          <strong>Kind:</strong> ${device.kind}
+        `;
+        block.appendChild(deviceInfo);
+
+        block.appendChild(createJSONDetails('Device JSON', device));
+
+        const videoElem = document.createElement('video');
+        videoElem.autoplay = true;
+        videoElem.muted = true;
+        videoElem.playsInline = true;
+        block.appendChild(videoElem);
+
+        const ptzDiv = document.createElement('div');
+        ptzDiv.className = 'ptz-controls';
+        block.appendChild(ptzDiv);
+
+        const infoDiv = document.createElement('div');
+        block.appendChild(infoDiv);
+
+        videoDevicesDiv.appendChild(block);
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: device.deviceId } },
+          audio: false
+        });
+
+        activeStreams.push(stream);
+
+        videoElem.srcObject = stream;
+
+        const videoTrack = stream.getVideoTracks()[0];
+        const caps = videoTrack.getCapabilities();
+        const settings = videoTrack.getSettings();
+        const constraints = videoTrack.getConstraints();
+
+        console.log(`Video Device: ${device.label}`, {
+          device,
+          capabilities: caps,
+          settings,
+          constraints,
+        });
+
+        infoDiv.appendChild(createJSONDetails('Capabilities', caps));
+        infoDiv.appendChild(createJSONDetails('Settings', settings));
+        infoDiv.appendChild(createJSONDetails('Constraints', constraints));
+
+        // PTZ detection & UI
+        const ptzControls = ['pan', 'tilt', 'zoom'];
+        const hasPTZ = ptzControls.some(ctrl => caps[ctrl] !== undefined);
+
+        if (!hasPTZ) {
+          ptzDiv.textContent = 'PTZ Controls: Not supported for this camera.';
+        } else {
+          ptzDiv.innerHTML = '<strong>PTZ Controls:</strong>';
+          ptzControls.forEach(control => {
+            if (caps[control] === undefined) return;
+
+            const ctrlDiv = document.createElement('div');
+            ctrlDiv.className = 'ptz-control';
+
+            const label = document.createElement('label');
+            label.htmlFor = `${control}-${device.deviceId}`;
+            label.textContent = control.toUpperCase();
+
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.id = `${control}-${device.deviceId}`;
+            input.min = caps[control].min;
+            input.max = caps[control].max;
+            input.step = caps[control].step || 1;
+            input.value = settings[control] ?? caps[control].min;
+
+            const valSpan = document.createElement('span');
+            valSpan.style.marginLeft = '0.5rem';
+            valSpan.textContent = input.value;
+
+            input.addEventListener('input', async () => {
+              valSpan.textContent = input.value;
+              try {
+                await videoTrack.applyConstraints({ advanced: [{ [control]: Number(input.value) }] });
+                console.log(`PTZ ${control} set to ${input.value} for device ${device.label}`);
+              } catch (err) {
+                console.warn(`Failed to set PTZ ${control}:`, err);
+              }
+            });
+
+            ctrlDiv.appendChild(label);
+            ctrlDiv.appendChild(input);
+            ctrlDiv.appendChild(valSpan);
+            ptzDiv.appendChild(ctrlDiv);
+          });
+        }
+      }
+
+      // AUDIO INPUT DEVICES — info + audio level meter + device JSON
+      for (const device of audioInputDevices) {
+        const block = document.createElement('div');
+        block.className = 'device-block';
+
+        const title = document.createElement('h3');
+        title.textContent = device.label || `Microphone (deviceId: ${device.deviceId})`;
+        block.appendChild(title);
+
+        const deviceInfo = document.createElement('div');
+        deviceInfo.innerHTML = `
+          <strong>Device ID:</strong> ${device.deviceId}<br/>
+          <strong>Group ID:</strong> ${device.groupId}<br/>
+          <strong>Kind:</strong> ${device.kind}
+        `;
+        block.appendChild(deviceInfo);
+
+        block.appendChild(createJSONDetails('Device JSON', device));
+
+        audioInputDevicesDiv.appendChild(block);
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: { exact: device.deviceId } },
+            video: false
+          });
+          activeStreams.push(stream);
+          createAudioMeter(stream, block);
+          console.log(`Audio Input Device: ${device.label}`, device);
+        } catch (err) {
+          console.warn(`Could not access audio input device ${device.label}`, err);
+          const warn = document.createElement('p');
+          warn.style.color = 'red';
+          warn.textContent = `Cannot access this audio input device: ${err.message}`;
+          block.appendChild(warn);
+        }
+      }
+
+      // AUDIO OUTPUT DEVICES — info only + device JSON
+      for (const device of audioOutputDevices) {
+        const block = document.createElement('div');
+        block.className = 'device-block';
+
+        const title = document.createElement('h3');
+        title.textContent = device.label || `Speaker (deviceId: ${device.deviceId})`;
+        block.appendChild(title);
+
+        const deviceInfo = document.createElement('div');
+        deviceInfo.innerHTML = `
+          <strong>Device ID:</strong> ${device.deviceId}<br/>
+          <strong>Group ID:</strong> ${device.groupId}<br/>
+          <strong>Kind:</strong> ${device.kind}
+        `;
+        block.appendChild(deviceInfo);
+
+        block.appendChild(createJSONDetails('Device JSON', device));
+
+        audioOutputDevicesDiv.appendChild(block);
+
+        console.log(`Audio Output Device: ${device.label}`, device);
+      }
+
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('stopBtn').disabled = false;
+
+    } catch (err) {
+      console.error("Error accessing devices or enumerating devices:", err);
+      alert(`Error: ${err.message}`);
+    }
+  }
+
+  function stopAllStreams() {
+    activeStreams.forEach(stream => {
+      stream.getTracks().forEach(track => track.stop());
+      if (audioContexts.has(stream.id)) {
+        const ctxObj = audioContexts.get(stream.id);
+        ctxObj.audioCtx.close();
+        audioContexts.delete(stream.id);
+      }
+    });
+    activeStreams.length = 0;
+
+    document.getElementById('videoDevices').innerHTML = '';
+    document.getElementById('audioInputDevices').innerHTML = '';
+    document.getElementById('audioOutputDevices').innerHTML = '';
+
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+  }
+
+  document.getElementById('startBtn').addEventListener('click', startDevicesAndShowInfo);
+  document.getElementById('stopBtn').addEventListener('click', stopAllStreams);
+  document.getElementById('diagBtn').addEventListener('click', () => {
+  window.open('diagnostic.html', '_blank');
+});
+
+</script>
+
+</body>
+</html>
