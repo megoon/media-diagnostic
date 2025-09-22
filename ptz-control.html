@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PTZ Camera Control</title>
+  <style>
+    video {
+      width: 640px;
+      height: auto;
+      border: 1px solid #ccc;
+      display: block;
+      margin-bottom: 20px;
+    }
+    .control-group {
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 8px 14px;
+      font-size: 14px;
+      margin: 0 5px;
+    }
+    input[type="number"] {
+      width: 60px;
+      padding: 5px;
+      font-size: 14px;
+      text-align: center;
+    }
+    label {
+      font-weight: bold;
+    }
+    #errorMsg {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <h2>UVC PTZ Camera Control</h2>
+  <video autoplay playsinline></video>
+
+  <div class="control-group">
+    <label>Pan:</label>
+    <input type="number" name="panStep" value="3600" min="1" />
+    <button onclick="adjustPTZ('pan', -1)">⬅️ Left</button>
+    <button onclick="adjustPTZ('pan', 1)">➡️ Right</button>
+  </div>
+
+  <div class="control-group">
+    <label>Tilt:</label>
+    <input type="number" name="tiltStep" value="3600" min="1" />
+    <button onclick="adjustPTZ('tilt', -1)">⬆️ Up</button>
+    <button onclick="adjustPTZ('tilt', 1)">⬇️ Down</button>
+  </div>
+
+  <div class="control-group">
+    <label>Zoom:</label>
+    <input type="number" name="zoomStep" value="1" min="1" />
+    <button onclick="adjustPTZ('zoom', 1)">🔍 Zoom In</button>
+    <button onclick="adjustPTZ('zoom', -1)">🔎 Zoom Out</button>
+  </div>
+
+  <button id="showVideo">🎥 Start Camera</button>
+
+  <div id="errorMsg"></div>
+
+  <script>
+    'use strict';
+
+    let track, capabilities, settings;
+
+    const constraints = window.constraints = {
+      video: {
+        pan: true,
+        tilt: true,
+        zoom: true
+      }
+    };
+
+    function errorMsg(msg, error) {
+      const errorElement = document.querySelector('#errorMsg');
+      errorElement.innerHTML += `<p>${msg}</p>`;
+      if (typeof error !== 'undefined') {
+        console.error(error);
+      }
+    }
+
+    function handleSuccess(stream) {
+      const video = document.querySelector('video');
+      const [videoTrack] = stream.getVideoTracks();
+      video.srcObject = stream;
+
+      track = videoTrack;
+      capabilities = track.getCapabilities();
+      settings = track.getSettings();
+
+      console.log('Capabilities:', capabilities);
+      console.log('Settings:', settings);
+
+      for (const ptz of ['pan', 'tilt', 'zoom']) {
+        if (!(ptz in capabilities)) {
+          errorMsg(`Camera does not support ${ptz}.`);
+        }
+      }
+    }
+
+    function handleError(error) {
+      if (error.name === 'NotAllowedError') {
+        errorMsg('Camera permission denied.');
+      } else {
+        errorMsg(`getUserMedia error: ${error.name}`, error);
+      }
+    }
+
+    async function init(e) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        handleSuccess(stream);
+        e.target.disabled = true;
+      } catch (err) {
+        handleError(err);
+      }
+    }
+
+    async function adjustPTZ(control, direction) {
+      if (!track || !capabilities[control]) {
+        errorMsg(`Cannot adjust ${control}.`);
+        return;
+      }
+
+      // Get custom step from input
+      const stepInput = document.querySelector(`input[name="${control}Step"]`);
+      const customStep = parseFloat(stepInput.value) || capabilities[control].step || 1;
+
+      const min = capabilities[control].min;
+      const max = capabilities[control].max;
+      const current = track.getSettings()[control] || 0;
+
+      let newValue = current + customStep * direction;
+      newValue = Math.max(min, Math.min(max, newValue));
+      newValue = parseFloat(newValue.toFixed(4));
+
+      try {
+        await track.applyConstraints({ advanced: [{ [control]: newValue }] });
+        console.log(`${control} set to ${newValue}`);
+      } catch (err) {
+        errorMsg(`Failed to set ${control}: ${err.message}`, err);
+      }
+    }
+
+    document.querySelector('#showVideo').addEventListener('click', init);
+  </script>
+</body>
+</html>
